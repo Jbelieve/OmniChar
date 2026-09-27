@@ -338,7 +338,11 @@ if [[ "$RUN_INSTALL" -eq 1 ]]; then
     # --no-sources-package, which needs uv 0.10+; torch is the only entry so they are equivalent.
     TORCH_INDEX=(--extra-index-url "$(torch_index_url "$TORCH_CHOICE")" \
       --index-strategy unsafe-best-match --no-sources)
-    echo "NVIDIA GPU detected - installing the CUDA build of PyTorch ($TORCH_CHOICE)."
+    if [[ "$TORCH_EXPLICIT" -eq 1 ]]; then
+      echo "Installing PyTorch from $(torch_index_url "$TORCH_CHOICE") (--torch-index)."
+    else
+      echo "NVIDIA GPU detected - installing the CUDA build of PyTorch ($TORCH_CHOICE)."
+    fi
   fi
   # A venv reused from a bad install keeps its torch: uv leaves a satisfying version alone, so
   # neither a corrected detector nor --torch-index would replace it. Ask the installed torch whether
@@ -389,7 +393,7 @@ print(version("omnichar-frontend"))' 2>/dev/null || true)"
 if importlib.util.find_spec("torch") is None:
     sys.exit(0)
 import torch
-sys.exit(0 if torch.version.cuda else 1)' 2>/dev/null; then
+sys.exit(0 if torch.version.cuda or torch.version.hip else 1)' 2>/dev/null; then
     echo "WARNING: the torch that got installed is a CPU-ONLY build. Generation would run on the"
     echo "         CPU, roughly 100x slower. Re-run with an explicit index, e.g."
     # The extras and the index this run actually chose, not a fixed pair: a re-run without them

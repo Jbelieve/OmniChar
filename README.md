@@ -117,6 +117,7 @@ What has been run, and what has a code path nobody has verified:
 | **NVIDIA, Windows**     | Supported                                                                                        | PyPI's default torch is CPU-only on Windows, so `--install` picks the CUDA build for your card |
 | **Apple Silicon (MPS)** | Code path exists, **untested**                                                                   | None. No int8 quantising on MPS, so a model must fit unified memory; ComfyUI int8 loads        |
 | **AMD (ROCm), Linux**   | **Untested**, reports welcome                                                                    | Needs a ROCm build of PyTorch, see below                                                       |
+| **AMD (ROCm), Windows** | **Untested**, reports welcome                                                                    | Needs AMD's own PyTorch wheels (pytorch.org has none for Windows), see below                   |
 | **CPU only**            | Works, very slow                                                                                 | `./webui.sh --cpu`                                                                             |
 
 #### RTX 50-series (Blackwell)
@@ -151,6 +152,14 @@ uv pip install --python .venv/bin/python --force-reinstall \
 
 # hip should print a version, not None
 .venv/bin/python -c "import torch; print(torch.cuda.is_available(), torch.version.hip)"
+```
+
+**Windows:** pytorch.org publishes no ROCm wheels for Windows, so a short name like `gfx1201` or
+`rocm6.4` is refused. AMD publishes its own index per GPU family; pass its full URL. For an
+RX 9000-series card (gfx1200/gfx1201):
+
+```bat
+.\webui.bat --install --extra all --torch-index https://rocm.nightlies.amd.com/v2/gfx120X-all/
 ```
 
 Do not run `uv sync` or pass `--recreate` afterwards; both put the PyPI torch back over your ROCm

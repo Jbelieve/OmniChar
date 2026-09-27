@@ -160,6 +160,8 @@ if !CAP_MAJOR! GEQ 10 if !DRIVER_MAJOR! GTR 0 if !DRIVER_MAJOR! LSS 580 (
 
 :install_torch_index
 if /i "!TORCH_CHOICE!"=="cpu" goto install_cpu_forced
+rem pytorch.org serves only CUDA/CPU wheels for Windows, so any other short name 404s and uv falls back to PyPI's CPU torch.
+if /i not "!TORCH_CHOICE:~0,4!"=="http" if /i not "!TORCH_CHOICE:~0,2!"=="cu" goto bad_torch_index
 set "TORCH_URL=https://download.pytorch.org/whl/!TORCH_CHOICE!"
 if /i "!TORCH_CHOICE:~0,4!"=="http" set "TORCH_URL=!TORCH_CHOICE!"
 rem unsafe-best-match: without it uv stops at the older torchao on the CUDA index, and PyPI's plain
@@ -167,8 +169,20 @@ rem torch outranks the +cuXXX build on Windows.
 rem no-sources: the pyproject pin names one index, and the card decides here. The broad flag, not
 rem --no-sources-package, which needs uv 0.10+; torch is the only entry so they are equivalent.
 set "TORCH_ARGS=--extra-index-url !TORCH_URL! --index-strategy unsafe-best-match --no-sources"
-echo NVIDIA GPU detected - installing the CUDA build of PyTorch (!TORCH_CHOICE!).
+if "!TORCH_EXPLICIT!"=="1" (
+  echo Installing PyTorch from !TORCH_URL! ^(--torch-index^).
+) else (
+  echo NVIDIA GPU detected - installing the CUDA build of PyTorch ^(!TORCH_CHOICE!^).
+)
 goto install_pkgs
+
+:bad_torch_index
+echo --torch-index "!TORCH_CHOICE!" is not a pytorch.org Windows index. Pass cu130, cu128, cu126,
+echo cpu, or a full index URL. pytorch.org has no ROCm wheels for Windows; AMD publishes its own,
+echo e.g. for an RX 9000-series card ^(gfx1200/gfx1201^):
+echo   .\webui.bat --install --extra !EXTRAS! --torch-index https://rocm.nightlies.amd.com/v2/gfx120X-all/
+echo See the README section "AMD (ROCm)".
+goto fail
 
 :install_cpu_forced
 echo Installing the default (CPU) build of PyTorch (--torch-index cpu).
@@ -178,9 +192,9 @@ goto install_pkgs
 set "TORCH_CHOICE=cpu"
 set "TORCH_INDEX_REASON=no-gpu"
 echo No NVIDIA GPU detected (!NO_GPU_WHY!) - installing the default (CPU) build of PyTorch.
-echo   On an AMD or Intel GPU this is not what you want: pass a full index URL, e.g.
-echo   .\webui.bat --install --torch-index https://download.pytorch.org/whl/rocm6.2
-echo   See the README section "AMD (ROCm) setup".
+echo   On an AMD or Intel GPU this is not what you want: pass a full index URL, e.g. for an RX 9000:
+echo   .\webui.bat --install --torch-index https://rocm.nightlies.amd.com/v2/gfx120X-all/
+echo   See the README section "AMD (ROCm)".
 
 :install_pkgs
 rem A venv reused from a bad install keeps its torch: uv leaves a satisfying version alone, so
@@ -236,7 +250,7 @@ rem A CPU-only wheel on a GPU box is silent at runtime and ~100x slower, so say 
 rem let it through: it can still happen if PyPI ever outranks the CUDA index on version.
 if /i "!TORCH_CHOICE!"=="cpu" goto install_done
 rem TARGET_PY, not PY which is unset until :pick_python, and a torch probe not a web UI one: the question here is whether the wheel that landed carries CUDA.
-"!TARGET_PY!" -c "import importlib.util as u,sys;sys.exit(0 if u.find_spec('torch') is None else (0 if __import__('torch').version.cuda else 1))" >nul 2>nul && goto install_done
+"!TARGET_PY!" -c "import importlib.util as u,sys;sys.exit(0 if u.find_spec('torch') is None else (0 if __import__('torch').version.cuda or __import__('torch').version.hip else 1))" >nul 2>nul && goto install_done
 echo WARNING: the torch that got installed is a CPU-ONLY build. Generation would run on the
 echo          CPU, roughly 100x slower. Re-run with an explicit index, e.g.
 rem Carries the extras, because --recreate wipes the venv and they would otherwise fall back to the default.
