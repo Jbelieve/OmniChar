@@ -86,9 +86,9 @@ class Sandbox:
         _stub(self.stubs / "uname", "printf 'MINGW64_NT-10.0-22631\\n'\nexit 0\n")
 
     def project_install(self) -> str:
-        """The one uv call that resolves pyproject's dependencies."""
+        """The uv call that resolves pyproject's dependencies; forced torch repeats it as is."""
         calls = [call for call in self.uv_calls() if "-e ." in call]
-        assert len(calls) == 1, self.uv_calls()
+        assert calls and all(call == calls[0] for call in calls), self.uv_calls()
         return calls[0]
 
 
@@ -234,6 +234,21 @@ def test_torch_index_override_beats_detection(sandbox: Sandbox) -> None:
 
     forced_cpu = _install(sandbox, "--torch-index", "cpu")
     assert "--extra-index-url" not in forced_cpu
+
+
+def test_forced_torch_is_followed_by_a_project_resolve(sandbox: Sandbox) -> None:
+    """The ROCm report: the torch-only index downgraded typing-extensions under anyio, and the
+    server died on import. The project resolve after it puts back what the torch step broke."""
+    sandbox.make_venv_python()
+    sandbox.pretend_windows()
+    rocm = "https://rocm.nightlies.amd.com/v2/gfx120X-all/"
+
+    _install(sandbox, "--torch-index", rocm)
+
+    calls = [c for c in sandbox.uv_calls() if c.startswith("pip install") and "frontend" not in c]
+    assert len(calls) == 3, calls
+    assert "-e ." in calls[0] and "-e ." in calls[2]
+    assert f"--index-url {rocm} --reinstall torch torchvision torchaudio" in calls[1]
 
 
 def test_linux_keeps_the_default_pypi_wheels(sandbox: Sandbox) -> None:

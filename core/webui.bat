@@ -206,7 +206,8 @@ if /i "!TORCH_CHOICE!"=="cpu" goto install_run
 if not defined TORCH_CHOICE goto install_run
 set "PROBE_STATUS=unknown"
 set "PROBE_REPLACEABLE=0"
-for /f "usebackq tokens=1,2" %%a in (`"!TARGET_PY!" -c "from inline_core.device.probe import probe; p = probe(); print(p['status'], int(p['replaceable']))" 2^>nul`) do (
+rem `call`, not a leading quote: cmd /c strips a command's first and last quotes, so the python probes below silently never ran.
+for /f "usebackq tokens=1,2" %%a in (`call "!TARGET_PY!" -c "from inline_core.device.probe import probe; p = probe(); print(p['status'], int(p['replaceable']))" 2^>nul`) do (
   set "PROBE_STATUS=%%a"
   set "PROBE_REPLACEABLE=%%b"
 )
@@ -229,19 +230,23 @@ uv pip install --python "!TARGET_PY!" !TORCH_ARGS! -e ".[!EXTRAS!]" || goto fail
 rem Torch LAST and through --index-url (exclusive): [tool.uv.sources] pins it to cu126 on win32,
 rem and --extra-index-url picks the highest version ACROSS indexes, so PyPI's CPU wheel can win.
 if "!TORCH_FORCE!"=="1" if defined TORCH_CHOICE (
-  set "TORCH_PINS=torch torchvision"
-  rem cu128 is frozen, so the current pair does not exist there. Pin the last one it has.
-  if /i "!TORCH_CHOICE!"=="cu128" set "TORCH_PINS=torch==2.11.0 torchvision==0.26.0"
+  rem torchaudio too: left behind it is PyPI's CPU build, linked against a different torch.
+  set "TORCH_PINS=torch torchvision torchaudio"
+  rem cu128 is frozen, so the current trio does not exist there. Pin the last one it has.
+  if /i "!TORCH_CHOICE!"=="cu128" set "TORCH_PINS=torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0"
   set "TORCH_URL=https://download.pytorch.org/whl/!TORCH_CHOICE!"
   if /i "!TORCH_CHOICE:~0,4!"=="http" set "TORCH_URL=!TORCH_CHOICE!"
   echo + uv pip install --python "!TARGET_PY!" --index-url !TORCH_URL! --reinstall !TORCH_PINS!
   uv pip install --python "!TARGET_PY!" --index-url !TORCH_URL! --reinstall !TORCH_PINS! || goto fail
+  rem That resolve saw only the torch index, so it downgraded shared deps under other packages (typing-extensions under anyio); re-satisfy them, torch stays.
+  echo + uv pip install --python "!TARGET_PY!" !TORCH_ARGS! -e ".[!EXTRAS!]"
+  uv pip install --python "!TARGET_PY!" !TORCH_ARGS! -e ".[!EXTRAS!]" || goto fail
 )
 rem --upgrade, because uv leaves an already-satisfied requirement alone: without it a re-run of
 rem --install kept whatever UI was first installed while the engine moved on underneath it.
 set "FRONTEND_VERSION="
 uv pip install --python "!TARGET_PY!" --upgrade omnichar-frontend >nul 2>nul && (
-  for /f "usebackq delims=" %%v in (`"!TARGET_PY!" -c "from importlib.metadata import version; print(version('omnichar-frontend'))" 2^>nul`) do set "FRONTEND_VERSION=%%v"
+  for /f "usebackq delims=" %%v in (`call "!TARGET_PY!" -c "from importlib.metadata import version; print(version('omnichar-frontend'))" 2^>nul`) do set "FRONTEND_VERSION=%%v"
   if not defined FRONTEND_VERSION set "FRONTEND_VERSION=unknown"
   echo Installed the prebuilt web UI ^(omnichar-frontend !FRONTEND_VERSION!^).
 ) || echo Note: omnichar-frontend not installed; the UI will build from source or run API-only.
@@ -258,7 +263,7 @@ echo          .\webui.bat --install --extra !EXTRAS! --torch-index !TORCH_CHOICE
 
 :install_done
 set "CORE_VERSION=unknown"
-for /f "usebackq delims=" %%v in (`"!TARGET_PY!" -c "from importlib.metadata import version; print(version('omnichar-core'))" 2^>nul`) do set "CORE_VERSION=%%v"
+for /f "usebackq delims=" %%v in (`call "!TARGET_PY!" -c "from importlib.metadata import version; print(version('omnichar-core'))" 2^>nul`) do set "CORE_VERSION=%%v"
 echo Installed omnichar-core !CORE_VERSION! with extras: !EXTRAS!. Start with: .\webui.bat
 exit /b 0
 

@@ -222,8 +222,8 @@ pick_torch_index() {
 # has instead of resolving, or uv picks whatever is newest on an index that stopped moving.
 torch_pins_for() {
   case "$1" in
-    cu128) printf 'torch==2.11.0 torchvision==0.26.0\n' ;;
-    *) printf 'torch torchvision\n' ;;
+    cu128) printf 'torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0\n' ;;
+    *) printf 'torch torchvision torchaudio\n' ;;
   esac
 }
 
@@ -376,6 +376,9 @@ if [[ "$RUN_INSTALL" -eq 1 ]]; then
     TORCH_URL="$(torch_index_url "$TORCH_CHOICE")"
     echo "+ uv pip install --python $TARGET_PY --index-url $TORCH_URL --reinstall ${TORCH_PINS[*]}"
     uv pip install --python "$TARGET_PY" --index-url "$TORCH_URL" --reinstall "${TORCH_PINS[@]}"
+    # That resolve saw only the torch index and can downgrade deps others need (typing-extensions).
+    echo "+ uv pip install --python $TARGET_PY ${TORCH_INDEX[*]} -e .[$EXTRAS]"
+    uv pip install --python "$TARGET_PY" "${TORCH_INDEX[@]}" -e ".[$EXTRAS]"
   fi
   # Pull the prebuilt web UI so there's no Node build (best-effort - it may not be published yet).
   # --upgrade, because uv leaves an already-satisfied requirement alone: without it a re-run of
