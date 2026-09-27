@@ -251,6 +251,22 @@ def test_forced_torch_is_followed_by_a_project_resolve(sandbox: Sandbox) -> None
     assert f"--index-url {rocm} --reinstall torch torchvision torchaudio" in calls[1]
 
 
+def test_torch_without_distributed_holds_transformers_back(sandbox: Sandbox) -> None:
+    """AMD's Windows torch lacks torch.distributed, which transformers 5.14 imports unguarded."""
+    sandbox.make_venv_python()
+    sandbox.pretend_windows()
+    _stub(sandbox.venv_python, 'case "$*" in *distributed.is_available*) exit 3 ;; esac\nexit 0\n')
+
+    sandbox.uv_log.unlink(missing_ok=True)
+    rocm = "https://rocm.nightlies.amd.com/v2/gfx120X-all/"
+    done = sandbox.run("--install", "--extra", "runtime", "--torch-index", rocm)
+
+    assert done.returncode == 0, done.stderr
+    installs = [c for c in sandbox.uv_calls() if "-e ." in c]
+    assert "transformers<5.14" not in installs[0]
+    assert installs[-1].endswith("transformers<5.14")
+
+
 def test_linux_keeps_the_default_pypi_wheels(sandbox: Sandbox) -> None:
     """Linux torch on PyPI already bundles CUDA, so naming an index there would only pin us to an
     older build than the default one."""

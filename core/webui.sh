@@ -376,9 +376,18 @@ if [[ "$RUN_INSTALL" -eq 1 ]]; then
     TORCH_URL="$(torch_index_url "$TORCH_CHOICE")"
     echo "+ uv pip install --python $TARGET_PY --index-url $TORCH_URL --reinstall ${TORCH_PINS[*]}"
     uv pip install --python "$TARGET_PY" --index-url "$TORCH_URL" --reinstall "${TORCH_PINS[@]}"
+    # A torch without torch.distributed (AMD's Windows ROCm) breaks transformers 5.14's FSDP import.
+    TF_PIN=()
+    DIST_RC=0
+    "$TARGET_PY" -c 'import sys, torch; sys.exit(0 if torch.distributed.is_available() else 3)' \
+      >/dev/null 2>&1 || DIST_RC=$?
+    if [[ "$DIST_RC" -eq 3 ]]; then
+      TF_PIN=("transformers<5.14")
+      echo "This torch is built without torch.distributed; holding transformers below 5.14, which needs it."
+    fi
     # That resolve saw only the torch index and can downgrade deps others need (typing-extensions).
-    echo "+ uv pip install --python $TARGET_PY ${TORCH_INDEX[*]} -e .[$EXTRAS]"
-    uv pip install --python "$TARGET_PY" "${TORCH_INDEX[@]}" -e ".[$EXTRAS]"
+    echo "+ uv pip install --python $TARGET_PY ${TORCH_INDEX[*]} -e .[$EXTRAS] ${TF_PIN[*]}"
+    uv pip install --python "$TARGET_PY" "${TORCH_INDEX[@]}" -e ".[$EXTRAS]" "${TF_PIN[@]}"
   fi
   # Pull the prebuilt web UI so there's no Node build (best-effort - it may not be published yet).
   # --upgrade, because uv leaves an already-satisfied requirement alone: without it a re-run of

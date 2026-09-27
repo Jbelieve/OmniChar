@@ -238,9 +238,16 @@ if "!TORCH_FORCE!"=="1" if defined TORCH_CHOICE (
   if /i "!TORCH_CHOICE:~0,4!"=="http" set "TORCH_URL=!TORCH_CHOICE!"
   echo + uv pip install --python "!TARGET_PY!" --index-url !TORCH_URL! --reinstall !TORCH_PINS!
   uv pip install --python "!TARGET_PY!" --index-url !TORCH_URL! --reinstall !TORCH_PINS! || goto fail
+  rem AMD's Windows torch has no torch.distributed, which transformers 5.14 imports unguarded; 5.17 fixes it but Gemma 4 caps us below 5.15.
+  set "TF_PIN="
+  "!TARGET_PY!" -c "import sys,torch;sys.exit(0 if torch.distributed.is_available() else 3)" >nul 2>nul
+  if errorlevel 3 (
+    set "TF_PIN=transformers<5.14"
+    echo This torch is built without torch.distributed; holding transformers below 5.14, which needs it.
+  )
   rem That resolve saw only the torch index, so it downgraded shared deps under other packages (typing-extensions under anyio); re-satisfy them, torch stays.
-  echo + uv pip install --python "!TARGET_PY!" !TORCH_ARGS! -e ".[!EXTRAS!]"
-  uv pip install --python "!TARGET_PY!" !TORCH_ARGS! -e ".[!EXTRAS!]" || goto fail
+  echo + uv pip install --python "!TARGET_PY!" !TORCH_ARGS! -e ".[!EXTRAS!]" !TF_PIN!
+  uv pip install --python "!TARGET_PY!" !TORCH_ARGS! -e ".[!EXTRAS!]" !TF_PIN! || goto fail
 )
 rem --upgrade, because uv leaves an already-satisfied requirement alone: without it a re-run of
 rem --install kept whatever UI was first installed while the engine moved on underneath it.
