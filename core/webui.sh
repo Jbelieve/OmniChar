@@ -227,6 +227,14 @@ torch_pins_for() {
   esac
 }
 
+# Exit 3, not 1, so a torch that fails to import is not mistaken for one built without distributed.
+torch_lacks_distributed() {
+  local rc=0
+  "$@" -c 'import sys, torch; sys.exit(0 if torch.distributed.is_available() else 3)' \
+    >/dev/null 2>&1 || rc=$?
+  [[ "$rc" -eq 3 ]]
+}
+
 torch_index_url() {
   case "$1" in
     http://*|https://*) printf '%s\n' "$1" ;;
@@ -376,18 +384,25 @@ if [[ "$RUN_INSTALL" -eq 1 ]]; then
     TORCH_URL="$(torch_index_url "$TORCH_CHOICE")"
     echo "+ uv pip install --python $TARGET_PY --index-url $TORCH_URL --reinstall ${TORCH_PINS[*]}"
     uv pip install --python "$TARGET_PY" --index-url "$TORCH_URL" --reinstall "${TORCH_PINS[@]}"
-    # A torch without torch.distributed (AMD's Windows ROCm) breaks transformers 5.14's FSDP import.
-    TF_PIN=()
-    DIST_RC=0
-    "$TARGET_PY" -c 'import sys, torch; sys.exit(0 if torch.distributed.is_available() else 3)' \
-      >/dev/null 2>&1 || DIST_RC=$?
-    if [[ "$DIST_RC" -eq 3 ]]; then
-      TF_PIN=("transformers<5.14")
-      echo "This torch is built without torch.distributed; holding transformers below 5.14, which needs it."
-    fi
-    # That resolve saw only the torch index and can downgrade deps others need (typing-extensions).
+  fi
+  # Every install, not just a forced one: the extras put torchao back on a plain re-run.
+  TF_PIN=()
+  RESOLVE_AGAIN="$TORCH_FORCE"
+  if torch_lacks_distributed "$TARGET_PY"; then
+    # transformers 5.14 imports FSDP unguarded; 5.17 fixes it but Gemma 4 caps us below 5.15.
+    TF_PIN=("transformers<5.14")
+    RESOLVE_AGAIN=1
+    echo "This torch is built without torch.distributed: holding transformers below 5.14 and removing"
+    echo "torchao, both of which import it. Models load in full precision, without int8."
+  fi
+  # The torch step saw only the torch index and can downgrade deps others need (typing-extensions).
+  if [[ "$RESOLVE_AGAIN" -eq 1 ]]; then
     echo "+ uv pip install --python $TARGET_PY ${TORCH_INDEX[*]} -e .[$EXTRAS] ${TF_PIN[*]}"
     uv pip install --python "$TARGET_PY" "${TORCH_INDEX[@]}" -e ".[$EXTRAS]" "${TF_PIN[@]}"
+  fi
+  if [[ ${#TF_PIN[@]} -gt 0 ]]; then
+    echo "+ uv pip uninstall --python $TARGET_PY torchao"
+    uv pip uninstall --python "$TARGET_PY" torchao >/dev/null 2>&1 || true
   fi
   # Pull the prebuilt web UI so there's no Node build (best-effort - it may not be published yet).
   # --upgrade, because uv leaves an already-satisfied requirement alone: without it a re-run of
@@ -527,6 +542,10 @@ run_dev() {
 # install fails, generation still runs, only without int8 (the loader logs and loads full precision).
 ensure_smart_memory_deps() {
   "${PY_CMD[@]}" -c "import torchao" >/dev/null 2>&1 && return 0
+  if torch_lacks_distributed "${PY_CMD[@]}"; then
+    echo "Smart memory: this torch has no torch.distributed, which torchao needs; running without int8."
+    return 0
+  fi
   echo "Smart memory: installing torchao (int8 quantization)…"
   "${PIP_INSTALL[@]}" torchao >/dev/null \
     && echo "Installed torchao." \

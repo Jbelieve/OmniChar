@@ -238,16 +238,26 @@ if "!TORCH_FORCE!"=="1" if defined TORCH_CHOICE (
   if /i "!TORCH_CHOICE:~0,4!"=="http" set "TORCH_URL=!TORCH_CHOICE!"
   echo + uv pip install --python "!TARGET_PY!" --index-url !TORCH_URL! --reinstall !TORCH_PINS!
   uv pip install --python "!TARGET_PY!" --index-url !TORCH_URL! --reinstall !TORCH_PINS! || goto fail
-  rem AMD's Windows torch has no torch.distributed, which transformers 5.14 imports unguarded; 5.17 fixes it but Gemma 4 caps us below 5.15.
-  set "TF_PIN="
-  "!TARGET_PY!" -c "import sys,torch;sys.exit(0 if torch.distributed.is_available() else 3)" >nul 2>nul
-  if errorlevel 3 (
-    set "TF_PIN=transformers<5.14"
-    echo This torch is built without torch.distributed; holding transformers below 5.14, which needs it.
-  )
-  rem That resolve saw only the torch index, so it downgraded shared deps under other packages (typing-extensions under anyio); re-satisfy them, torch stays.
+)
+rem Every install, not just a forced one: the extras put torchao back on a plain re-run.
+call :probe_torch_distributed "!TARGET_PY!"
+set "TF_PIN="
+set "RESOLVE_AGAIN=!TORCH_FORCE!"
+if "!NO_DIST!"=="1" (
+  rem transformers 5.14 imports FSDP unguarded; 5.17 fixes it but Gemma 4 caps us below 5.15.
+  set "TF_PIN=transformers<5.14"
+  set "RESOLVE_AGAIN=1"
+  echo This torch is built without torch.distributed: holding transformers below 5.14 and removing
+  echo torchao, both of which import it. Models load in full precision, without int8.
+)
+rem The torch step saw only the torch index, so it downgraded shared deps under other packages (typing-extensions under anyio); re-satisfy them, torch stays.
+if "!RESOLVE_AGAIN!"=="1" (
   echo + uv pip install --python "!TARGET_PY!" !TORCH_ARGS! -e ".[!EXTRAS!]" !TF_PIN!
   uv pip install --python "!TARGET_PY!" !TORCH_ARGS! -e ".[!EXTRAS!]" !TF_PIN! || goto fail
+)
+if "!NO_DIST!"=="1" (
+  echo + uv pip uninstall --python "!TARGET_PY!" torchao
+  uv pip uninstall --python "!TARGET_PY!" torchao >nul 2>nul
 )
 rem --upgrade, because uv leaves an already-satisfied requirement alone: without it a re-run of
 rem --install kept whatever UI was first installed while the engine moved on underneath it.
@@ -409,8 +419,17 @@ popd
 for %%I in ("..\dist-web") do set "INLINE_FRONTEND_ROOT=%%~fI"
 exit /b 0
 
+:probe_torch_distributed
+rem Exit 3, not 1, so a torch that fails to import is not mistaken for one built without distributed (AMD's Windows ROCm).
+set "NO_DIST=0"
+"%~1" -c "import sys,torch;sys.exit(0 if torch.distributed.is_available() else 3)" >nul 2>nul
+if errorlevel 3 set "NO_DIST=1"
+exit /b 0
+
 :ensure_smart_memory_deps
 "%PY%" -c "import torchao" >nul 2>nul && exit /b 0
+call :probe_torch_distributed "%PY%"
+if "!NO_DIST!"=="1" ( echo Smart memory: this torch has no torch.distributed, which torchao needs; running without int8. & exit /b 0 )
 echo Smart memory: installing torchao (int8 quantization)...
 %PIP% torchao >nul ^
   && echo Installed torchao. ^

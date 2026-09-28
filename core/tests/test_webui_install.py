@@ -249,6 +249,7 @@ def test_forced_torch_is_followed_by_a_project_resolve(sandbox: Sandbox) -> None
     assert len(calls) == 3, calls
     assert "-e ." in calls[0] and "-e ." in calls[2]
     assert f"--index-url {rocm} --reinstall torch torchvision torchaudio" in calls[1]
+    assert not [c for c in sandbox.uv_calls() if c.endswith(" torchao")]  # it has distributed
 
 
 def test_torch_without_distributed_holds_transformers_back(sandbox: Sandbox) -> None:
@@ -265,6 +266,12 @@ def test_torch_without_distributed_holds_transformers_back(sandbox: Sandbox) -> 
     installs = [c for c in sandbox.uv_calls() if "-e ." in c]
     assert "transformers<5.14" not in installs[0]
     assert installs[-1].endswith("transformers<5.14")
+    assert any(c.startswith("pip uninstall") and c.endswith(" torchao") for c in sandbox.uv_calls())
+
+    # A plain re-run reinstalls torchao from the extras, so it has to come off again.
+    sandbox.uv_log.unlink(missing_ok=True)
+    assert sandbox.run("--install", "--extra", "runtime").returncode == 0
+    assert any(c.startswith("pip uninstall") and c.endswith(" torchao") for c in sandbox.uv_calls())
 
 
 def test_linux_keeps_the_default_pypi_wheels(sandbox: Sandbox) -> None:
