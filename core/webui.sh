@@ -397,8 +397,8 @@ if [[ "$RUN_INSTALL" -eq 1 ]]; then
   fi
   # The torch step saw only the torch index and can downgrade deps others need (typing-extensions).
   if [[ "$RESOLVE_AGAIN" -eq 1 ]]; then
-    echo "+ uv pip install --python $TARGET_PY ${TORCH_INDEX[*]:-} -e .[$EXTRAS] ${TF_PIN[*]}"
-    uv pip install --python "$TARGET_PY" ${TORCH_INDEX[@]+"${TORCH_INDEX[@]}"} -e ".[$EXTRAS]" "${TF_PIN[@]}"
+    echo "+ uv pip install --python $TARGET_PY ${TORCH_INDEX[*]:-} -e .[$EXTRAS] ${TF_PIN[*]:-}"
+    uv pip install --python "$TARGET_PY" ${TORCH_INDEX[@]+"${TORCH_INDEX[@]}"} -e ".[$EXTRAS]" ${TF_PIN[@]+"${TF_PIN[@]}"}
   fi
   if [[ ${#TF_PIN[@]} -gt 0 ]]; then
     echo "+ uv pip uninstall --python $TARGET_PY torchao"
